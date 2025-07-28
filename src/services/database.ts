@@ -1,190 +1,76 @@
-import sqlite3 from 'sqlite3';
-import { Contact, ContactRow } from '../types';
+import knex, { Knex } from 'knex';
+import { Contact } from '../types';
 
 export class DatabaseService {
-  private db: sqlite3.Database;
+  private db: Knex;
 
   constructor() {
-    const dbPath = process.env.RENDER ? '/data/contacts.db' : 'contacts.db';
-    console.log('Database file path:', require('path').resolve(dbPath));
-    this.db = new sqlite3.Database(dbPath, (err: Error | null) => {
-      if (err) {
-        console.error('Error opening database:', err);
-      } else {
-        console.log('Connected to SQLite database');
-        this.initializeTables();
-      }
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error('DATABASE_URL environment variable is not set');
+    }
+    this.db = knex({
+      client: 'pg',
+      connection: connectionString,
+      pool: { min: 0, max: 7 },
     });
+    this.initializeTables();
   }
 
-  private initializeTables(): void {
-    const createTableSQL = `
-      CREATE TABLE IF NOT EXISTS contacts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        phoneNumber TEXT,
-        email TEXT,
-        linkedId INTEGER,
-        linkPrecedence TEXT CHECK(linkPrecedence IN ('primary', 'secondary')) NOT NULL,
-        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-        deletedAt DATETIME,
-        FOREIGN KEY (linkedId) REFERENCES contacts(id)
-      )
-    `;
-
-          this.db.run(createTableSQL, (err: Error | null) => {
-        if (err) {
-          console.error('Error creating table:', err);
-        } else {
-          console.log('Contacts table created successfully');
-        }
+  private async initializeTables() {
+    const exists = await this.db.schema.hasTable('contacts');
+    if (!exists) {
+      await this.db.schema.createTable('contacts', (table: Knex.CreateTableBuilder) => {
+        table.increments('id').primary();
+        table.string('phoneNumber');
+        table.string('email');
+        table.integer('linkedId');
+        table.enu('linkPrecedence', ['primary', 'secondary']).notNullable();
+        table.timestamp('createdAt').defaultTo(this.db.fn.now());
+        table.timestamp('updatedAt').defaultTo(this.db.fn.now());
+        table.timestamp('deletedAt').nullable();
       });
+      console.log('Contacts table created successfully');
+    }
   }
 
   async findContactsByEmailOrPhone(email?: string, phoneNumber?: string): Promise<Contact[]> {
-    return new Promise((resolve, reject) => {
-      const conditions: string[] = [];
-      const params: any[] = [];
-
-      if (email) {
-        conditions.push('email = ?');
-        params.push(email);
-      }
-
-      if (phoneNumber) {
-        conditions.push('phoneNumber = ?');
-        params.push(phoneNumber);
-      }
-
-      if (conditions.length === 0) {
-        resolve([]);
-        return;
-      }
-
-      const whereClause = conditions.join(' OR ');
-      const sql = `SELECT * FROM contacts WHERE ${whereClause} AND deletedAt IS NULL`;
-
-      this.db.all(sql, params, (err, rows: ContactRow[]) => {
-        if (err) {
-          reject(err);
-        } else {
-          const contacts: Contact[] = rows.map(row => ({
-            ...row,
-            createdAt: new Date(row.createdAt),
-            updatedAt: new Date(row.updatedAt),
-            deletedAt: row.deletedAt ? new Date(row.deletedAt) : undefined
-          }));
-          resolve(contacts);
-        }
-      });
-    });
+    const query = this.db('contacts').whereNull('deletedAt');
+    if (email) query.orWhere('email', email);
+    if (phoneNumber) query.orWhere('phoneNumber', phoneNumber);
+    return await query.orderBy('createdAt', 'asc');
   }
 
   async findContactsByLinkedId(linkedId: number): Promise<Contact[]> {
-    return new Promise((resolve, reject) => {
-      const sql = `
-        SELECT * FROM contacts 
-        WHERE (id = ? OR linkedId = ?) AND deletedAt IS NULL
-        ORDER BY createdAt ASC
-      `;
-
-      this.db.all(sql, [linkedId, linkedId], (err, rows: ContactRow[]) => {
-        if (err) {
-          reject(err);
-        } else {
-          const contacts: Contact[] = rows.map(row => ({
-            ...row,
-            createdAt: new Date(row.createdAt),
-            updatedAt: new Date(row.updatedAt),
-            deletedAt: row.deletedAt ? new Date(row.deletedAt) : undefined
-          }));
-          resolve(contacts);
-        }
-      });
-    });
+    return await this.db('contacts')
+      .where(function (this: Knex.QueryBuilder) {
+        this.where('id', linkedId).orWhere('linkedId', linkedId);
+      })
+      .andWhere('deletedAt', null)
+      .orderBy('createdAt', 'asc');
   }
 
   async createContact(contact: {
-    email?: string | undefined;
-    phoneNumber?: string | undefined;
-    linkedId?: number | undefined;
+    email?: string;
+    phoneNumber?: string;
+    linkedId?: number;
     linkPrecedence: 'primary' | 'secondary';
   }): Promise<number> {
-    return new Promise((resolve, reject) => {
-      const sql = `
-        INSERT INTO contacts (phoneNumber, email, linkedId, linkPrecedence)
-        VALUES (?, ?, ?, ?)
-      `;
-
-      this.db.run(sql, [contact.phoneNumber, contact.email, contact.linkedId, contact.linkPrecedence], function(err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(this.lastID);
-        }
-      });
-    });
+    const [id] = await this.db('contacts').insert(contact).returning('id');
+    return typeof id === 'object' ? id.id : id;
   }
 
   async updateContact(id: number, updates: Partial<Contact>): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const setClause: string[] = [];
-      const params: any[] = [];
-
-      if (updates.linkedId !== undefined) {
-        setClause.push('linkedId = ?');
-        params.push(updates.linkedId);
-      }
-
-      if (updates.linkPrecedence !== undefined) {
-        setClause.push('linkPrecedence = ?');
-        params.push(updates.linkPrecedence);
-      }
-
-      setClause.push('updatedAt = CURRENT_TIMESTAMP');
-      params.push(id);
-
-      const sql = `UPDATE contacts SET ${setClause.join(', ')} WHERE id = ?`;
-
-      this.db.run(sql, params, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+    updates.updatedAt = new Date();
+    await this.db('contacts').where({ id }).update(updates);
   }
 
   async getAllContacts(): Promise<Contact[]> {
-    return new Promise((resolve, reject) => {
-      const sql = 'SELECT * FROM contacts WHERE deletedAt IS NULL ORDER BY createdAt ASC';
-
-      this.db.all(sql, [], (err, rows: ContactRow[]) => {
-        if (err) {
-          reject(err);
-        } else {
-          const contacts: Contact[] = rows.map(row => ({
-            ...row,
-            createdAt: new Date(row.createdAt),
-            updatedAt: new Date(row.updatedAt),
-            deletedAt: row.deletedAt ? new Date(row.deletedAt) : undefined
-          }));
-          resolve(contacts);
-        }
-      });
-    });
+    return await this.db('contacts').whereNull('deletedAt').orderBy('createdAt', 'asc');
   }
 
   async close(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db.close((err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+    await this.db.destroy();
   }
-} 
+}
+// If you see type errors for 'knex', run: npm install --save-dev @types/knex 

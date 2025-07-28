@@ -21,12 +21,12 @@ export class ContactService {
 
     if (existingContacts.length === 0) {
       // No existing contacts found, create a new primary contact
-      const newContactId = await this.db.createContact({
-        email: email || undefined,
-        phoneNumber: phoneNumber || undefined,
+      const contactData: { email?: string; phoneNumber?: string; linkPrecedence: 'primary' | 'secondary'; linkedId?: number } = {
         linkPrecedence: 'primary'
-      });
-
+      };
+      if (email) contactData.email = email;
+      if (phoneNumber) contactData.phoneNumber = phoneNumber;
+      const newContactId = await this.db.createContact(contactData);
       return {
         contact: {
           primaryContatctId: newContactId,
@@ -71,12 +71,13 @@ export class ContactService {
     // Check if we need to create a new secondary contact
     const needsNewContact = this.shouldCreateNewContact(updatedLinkedContacts, email, phoneNumber);
     if (needsNewContact) {
-      const newContactId = await this.db.createContact({
-        email,
-        phoneNumber,
-        linkedId: primaryContact.id,
-        linkPrecedence: 'secondary'
-      });
+      const contactData: { email?: string; phoneNumber?: string; linkPrecedence: 'primary' | 'secondary'; linkedId?: number } = {
+        linkPrecedence: 'secondary',
+        linkedId: primaryContact.id
+      };
+      if (email) contactData.email = email;
+      if (phoneNumber) contactData.phoneNumber = phoneNumber;
+      const newContactId = await this.db.createContact(contactData);
       // Update the response to include the new contact
       updatedLinkedContacts.push({
         id: newContactId,

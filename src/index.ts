@@ -5,7 +5,7 @@ import morgan from 'morgan';
 import { DatabaseService } from './services/database';
 import { ContactService } from './services/contactService';
 import { IdentifyRequest } from './types';
-
+import 'dotenv/config';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
