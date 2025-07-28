@@ -49,6 +49,24 @@ app.post('/identify', async (req, res) => {
   }
 });
 
+// GET route for /identify (for browser testing)
+app.get('/identify', (req, res) => {
+  res.json({
+    message: 'This endpoint requires a POST request with JSON body',
+    example: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: {
+        email: 'doc@hillvalley.edu',
+        phoneNumber: '5550001'
+      }
+    },
+    note: 'Use tools like curl, Postman, or Insomnia to test this endpoint'
+  });
+});
+
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Unhandled error:', err);
