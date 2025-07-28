@@ -98,3 +98,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3 
+
+# Ignore SQLite database files
+contacts.db
+/data/contacts.db 

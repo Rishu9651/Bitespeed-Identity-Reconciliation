@@ -24,23 +24,6 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Database viewing endpoints (for development/testing)
-app.get('/db/contacts', async (req, res) => {
-  try {
-    const contacts = await db.getAllContacts();
-    return res.status(200).json({
-      count: contacts.length,
-      contacts: contacts
-    });
-  } catch (error) {
-    console.error('Error fetching contacts:', error);
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-});
-
 // Main identify endpoint
 app.post('/identify', async (req, res) => {
   try {
@@ -88,7 +71,6 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
   console.log(`Identify endpoint: http://localhost:${PORT}/identify`);
-  console.log(`Database viewer: http://localhost:${PORT}/db/contacts`);
 });
 
 // Graceful shutdown

@@ -5,7 +5,9 @@ export class DatabaseService {
   private db: sqlite3.Database;
 
   constructor() {
-    this.db = new sqlite3.Database(':memory:', (err: Error | null) => {
+    const dbPath = process.env.RENDER ? '/data/contacts.db' : 'contacts.db';
+    console.log('Database file path:', require('path').resolve(dbPath));
+    this.db = new sqlite3.Database(dbPath, (err: Error | null) => {
       if (err) {
         console.error('Error opening database:', err);
       } else {

@@ -45,9 +45,31 @@ export class ContactService {
       current.createdAt < oldest.createdAt ? current : oldest
     );
 
+    // --- Merge multiple primaries if needed ---
+    // Find all primaries except the oldest
+    const otherPrimaries = allLinkedContacts.filter(
+      c => c.linkPrecedence === 'primary' && c.id !== primaryContact.id
+    );
+    for (const otherPrimary of otherPrimaries) {
+      // Update the other primary to secondary and link to the oldest primary
+      await this.db.updateContact(otherPrimary.id, {
+        linkPrecedence: 'secondary',
+        linkedId: primaryContact.id
+      });
+      // Also update any contacts that were linked to this now-secondary to point to the new primary
+      const secondaries = allLinkedContacts.filter(
+        c => c.linkedId === otherPrimary.id
+      );
+      for (const secondary of secondaries) {
+        await this.db.updateContact(secondary.id, {
+          linkedId: primaryContact.id
+        });
+      }
+    }
+    // Re-fetch all linked contacts to get the updated state
+    const updatedLinkedContacts = await this.getAllLinkedContacts([primaryContact]);
     // Check if we need to create a new secondary contact
-    const needsNewContact = this.shouldCreateNewContact(allLinkedContacts, email, phoneNumber);
-
+    const needsNewContact = this.shouldCreateNewContact(updatedLinkedContacts, email, phoneNumber);
     if (needsNewContact) {
       const newContactId = await this.db.createContact({
         email,
@@ -55,9 +77,8 @@ export class ContactService {
         linkedId: primaryContact.id,
         linkPrecedence: 'secondary'
       });
-
       // Update the response to include the new contact
-      allLinkedContacts.push({
+      updatedLinkedContacts.push({
         id: newContactId,
         email: email || undefined,
         phoneNumber: phoneNumber || undefined,
@@ -68,14 +89,12 @@ export class ContactService {
         deletedAt: undefined
       });
     }
-
     // Prepare response
-    const emails = this.extractUniqueEmails(allLinkedContacts);
-    const phoneNumbers = this.extractUniquePhoneNumbers(allLinkedContacts);
-    const secondaryContactIds = allLinkedContacts
+    const emails = this.extractUniqueEmails(updatedLinkedContacts);
+    const phoneNumbers = this.extractUniquePhoneNumbers(updatedLinkedContacts);
+    const secondaryContactIds = updatedLinkedContacts
       .filter(contact => contact.id !== primaryContact.id)
       .map(contact => contact.id);
-
     return {
       contact: {
         primaryContatctId: primaryContact.id,
